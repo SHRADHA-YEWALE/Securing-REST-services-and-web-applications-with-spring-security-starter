@@ -87,6 +87,105 @@ public class SecurityConfiguration extends WebSecurityConfigurerAdapter {
 <i>Due to security reasons we should NEVER store passwords in plain text format. It must be store in encrypted format. </i>
 * <b>BCryptPasswordEncoder:</b> It is an implementation of Spring’s PasswordEncoder interface that uses the BCrypt strong hashing function to encode the password.
 
+### 2. A custom authentication provider.
+We will implement a custom authentication provider using <b>AuthenticationManagerBuilder</b>.
+
+DB records :
+username| password | user_role
+test    | test     | admin
+
+<b>UserDetailsServiceImpl.java </b>
+It will implement UserDetailsService which locates user based on the username.
+
+```sh
+@Component
+public class UserDetailsServiceImpl implements UserDetailsService {
+
+    @Autowired
+    private CredentialRepository credentialRepository;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) {
+
+        Credential user = credentialRepository.findByUsername(username);
+        if (user == null) {
+            throw new UsernameNotFoundException("User " + username + " not available");
+        }
+        GrantedAuthority authority = new SimpleGrantedAuthority(user.getRole());
+        return new User(user.getUsername(),
+                encoder().encode(user.getPassword()), Arrays.asList(authority));
+
+    }
+
+    BCryptPasswordEncoder encoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+```
+
+<b>CredentialRepository.java</b>: It will fetch the user by username from DB.
+
+```sh
+@Repository
+public interface CredentialRepository extends JpaRepository<Credential, UUID> {
+   Credential findByUsername(String username);
+}
+```
+
+<b>SecurityConfiguration.java</b>
+
+```sh
+@Configuration
+@EnableWebSecurity
+public class SecurityConfiguration extends  WebSecurityConfigurerAdapter {
+
+    @Autowired
+    private UserDetailsService userDetailsService;
+
+    @Override
+    public void configure(HttpSecurity httpSecurity) throws Exception {
+
+        httpSecurity
+                .authorizeRequests()
+                .antMatchers("/app1/spring-security/test")
+                .hasAuthority("MIGRATE")
+                .antMatchers("/app2/spring-security/test")
+                .permitAll()
+                .authenticated()
+                .and()
+                .formLogin().and()
+                .httpBasic().and().csrf().disable();
+    }
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.authenticationProvider(authProvider(userDetailsService));
+    }
+
+    @Bean
+    public DaoAuthenticationProvider authProvider(UserDetailsService userDetailsService) {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(userDetailsService);
+        authProvider.setPasswordEncoder(encoder());
+        return authProvider;
+    }
+
+    @Bean
+    public BCryptPasswordEncoder encoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+```
+
+* <b>UserDetailsService</b>: It is used as a User DAO.It is the strategy used by DaoAuthenticationProvider.
+* requests matched against "<b> /app1/spring-security/test </b>” are fully accessible.
+* requests matched against "<b> /app2/spring-security/test </b>" require a user to be authenticated and must be associated to the ADMIN role.
+
+
+For any unauthorized access to the above API’s it will show the <b><i>401(Unauthorised)</i></b> error.
+
+
+
 
 
 
